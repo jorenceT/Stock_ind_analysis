@@ -11,7 +11,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.options('*', (_req, res) => {
+app.options(/.*/, (_req, res) => {
   res.sendStatus(204);
 });
 
