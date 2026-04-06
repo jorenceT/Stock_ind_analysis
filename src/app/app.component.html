@@ -1,0 +1,58 @@
+<div class="container">
+  <header>
+    <h1>{{ title }}</h1>
+    <p>Track Indian stocks, get morning BUY/SELL signals, and a daily top-5 buy shortlist.</p>
+  </header>
+
+  <section class="card controls">
+    <h2>Add to Watchlist</h2>
+    <div class="row">
+      <input [(ngModel)]="addSymbol" placeholder="Enter NSE symbol (e.g., INFY)" list="stock-symbols" />
+      <datalist id="stock-symbols">
+        <option *ngFor="let symbol of allSymbols" [value]="symbol"></option>
+      </datalist>
+      <button (click)="addStock()">Add</button>
+      <button class="ghost" (click)="sendNow()">Send Test Notification</button>
+    </div>
+    <small>{{ message }}</small>
+  </section>
+
+  <section class="card">
+    <h2>Your Watchlist - Morning Signals</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Stock</th>
+          <th>Price</th>
+          <th>Day %</th>
+          <th>Action</th>
+          <th>Reason</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let signal of watchSignals">
+          <td>{{ signal.stock.symbol }}</td>
+          <td>₹{{ signal.stock.currentPrice }}</td>
+          <td [class.up]="signal.stock.dayChangePercent > 0" [class.down]="signal.stock.dayChangePercent < 0">
+            {{ signal.stock.dayChangePercent }}%
+          </td>
+          <td [class.buy]="signal.action === 'BUY'" [class.sell]="signal.action === 'SELL'">
+            {{ signal.action }}
+          </td>
+          <td>{{ signal.reason }}</td>
+          <td><button class="danger" (click)="removeStock(signal.stock.symbol)">Remove</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card bottom">
+    <h2>Top 5 Stocks Better to Buy Today</h2>
+    <ol>
+      <li *ngFor="let pick of topPicks">
+        <strong>{{ pick.stock.symbol }}</strong> (₹{{ pick.stock.currentPrice }}) - {{ pick.reason }}
+      </li>
+    </ol>
+  </section>
+</div>
