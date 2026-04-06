@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: stock-watchlist-proxy
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health

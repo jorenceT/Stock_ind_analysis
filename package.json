@@ -5,6 +5,8 @@
   "scripts": {
     "start": "ng serve",
     "build": "ng build",
+    "cap:sync": "ng build && npx cap sync android",
+    "android": "npx cap open android",
     "test": "ng test"
   },
   "dependencies": {
@@ -16,6 +18,9 @@
     "@angular/platform-browser": "^20.0.0",
     "@angular/platform-browser-dynamic": "^20.0.0",
     "@angular/router": "^20.0.0",
+    "@capacitor/android": "^8.3.0",
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/core": "^8.3.0",
     "rxjs": "^7.8.1",
     "tslib": "^2.8.0",
     "zone.js": "^0.15.0"

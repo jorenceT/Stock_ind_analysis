@@ -1,0 +1,28 @@
+# Angular / build output
+dist/
+.angular/
+out-tsc/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Capacitor / Android generated artifacts
+android/.gradle/
+android/**/build/
+android/capacitor-cordova-android-plugins/
+android/capacitor.build.gradle
+android/capacitor.settings.gradle
+android/local.properties
+
+# Render / local proxy dependencies
+proxy/node_modules/
+proxy/package-lock.json
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+*.log

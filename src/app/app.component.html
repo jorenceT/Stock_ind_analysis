@@ -7,14 +7,29 @@
   <section class="card controls">
     <h2>Add to Watchlist</h2>
     <div class="row">
-      <input [(ngModel)]="addSymbol" placeholder="Enter NSE symbol (e.g., INFY)" list="stock-symbols" />
-      <datalist id="stock-symbols">
-        <option *ngFor="let symbol of allSymbols" [value]="symbol"></option>
-      </datalist>
+      <div class="input-shell">
+        <input
+          [(ngModel)]="addSymbol"
+          (input)="onSymbolInput()"
+          placeholder="Search NSE symbol or company name"
+          autocomplete="off"
+        />
+        <div class="suggestions" *ngIf="searchResults.length">
+          <button
+            type="button"
+            class="suggestion"
+            *ngFor="let result of searchResults"
+            (click)="selectSuggestion(result)"
+          >
+            <strong>{{ result.symbol }}</strong>
+            <span>{{ result.companyName }}</span>
+          </button>
+        </div>
+      </div>
       <button (click)="addStock()">Add</button>
       <button class="ghost" (click)="sendNow()">Send Test Notification</button>
     </div>
-    <small>{{ message }}</small>
+    <small>{{ searching ? 'Searching live NSE data...' : message }}</small>
   </section>
 
   <section class="card">
@@ -32,16 +47,16 @@
       </thead>
       <tbody>
         <tr *ngFor="let signal of watchSignals">
-          <td>{{ signal.stock.symbol }}</td>
-          <td>₹{{ signal.stock.currentPrice }}</td>
-          <td [class.up]="signal.stock.dayChangePercent > 0" [class.down]="signal.stock.dayChangePercent < 0">
+          <td data-label="Stock">{{ signal.stock.symbol }}</td>
+          <td data-label="Price">₹{{ signal.stock.currentPrice }}</td>
+          <td data-label="Day %" [class.up]="signal.stock.dayChangePercent > 0" [class.down]="signal.stock.dayChangePercent < 0">
             {{ signal.stock.dayChangePercent }}%
           </td>
-          <td [class.buy]="signal.action === 'BUY'" [class.sell]="signal.action === 'SELL'">
+          <td data-label="Action" [class.buy]="signal.action === 'BUY'" [class.sell]="signal.action === 'SELL'">
             {{ signal.action }}
           </td>
-          <td>{{ signal.reason }}</td>
-          <td><button class="danger" (click)="removeStock(signal.stock.symbol)">Remove</button></td>
+          <td data-label="Reason">{{ signal.reason }}</td>
+          <td data-label="">&nbsp;<button class="danger" (click)="removeStock(signal.stock.symbol)">Remove</button></td>
         </tr>
       </tbody>
     </table>
