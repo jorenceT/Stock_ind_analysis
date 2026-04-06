@@ -19,7 +19,7 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/yahoo/*', async (req, res) => {
+app.get(/^\/api\/yahoo\/(.*)$/, async (req, res) => {
   try {
     const path = req.params[0] || '';
     const search = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
