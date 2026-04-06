@@ -43,7 +43,8 @@
         "serve": {
           "builder": "@angular-devkit/build-angular:dev-server",
           "options": {
-            "buildTarget": "indian-stock-watchlist:build"
+            "buildTarget": "indian-stock-watchlist:build",
+            "proxyConfig": "proxy.conf.json"
           },
           "configurations": {
             "production": {
