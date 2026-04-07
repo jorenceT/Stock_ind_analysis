@@ -67,7 +67,10 @@ app.get(/^\/api\/marketaux\/(.*)$/, async (req, res) => {
       }
     });
 
-    if (response.status >= 500) {
+    const contentType = response.headers.get('content-type') || 'application/json';
+    const body = await response.text();
+
+    if (response.status >= 500 || isEmptyMarketAuxResponse(body)) {
       const fallback = await fetchNewsApi(req.url);
       if (fallback) {
         res.status(200).json(fallback);
@@ -75,8 +78,6 @@ app.get(/^\/api\/marketaux\/(.*)$/, async (req, res) => {
       }
     }
 
-    const contentType = response.headers.get('content-type') || 'application/json';
-    const body = await response.text();
     res.status(response.status).setHeader('content-type', contentType);
     res.send(body);
   } catch (error) {
@@ -92,20 +93,8 @@ async function fetchNewsApi(originalUrl) {
     return null;
   }
 
-  const url = new URL(originalUrl, 'http://localhost');
-  const symbols = url.searchParams.get('symbols') || '';
-  const query = symbols
-    .split(',')
-    .map((symbol) => symbol.trim().replace(/\.NS$/i, ''))
-    .filter(Boolean)
-    .join(' OR ');
-
-  if (!query) {
-    return null;
-  }
-
   const fallbackUrl = new URL('https://newsapi.org/v2/everything');
-  fallbackUrl.searchParams.set('q', query);
+  fallbackUrl.searchParams.set('q', 'India stock market OR NSE OR Indian stocks');
   fallbackUrl.searchParams.set('language', 'en');
   fallbackUrl.searchParams.set('sortBy', 'publishedAt');
   fallbackUrl.searchParams.set('pageSize', '10');
@@ -137,6 +126,31 @@ async function fetchNewsApi(originalUrl) {
       symbols: []
     }))
   };
+}
+
+function isEmptyMarketAuxResponse(body) {
+  if (!body) {
+    return true;
+  }
+
+  try {
+    const parsed = JSON.parse(body);
+    if (!parsed) {
+      return true;
+    }
+
+    if (Array.isArray(parsed.data)) {
+      return parsed.data.length === 0;
+    }
+
+    if (Array.isArray(parsed.articles)) {
+      return parsed.articles.length === 0;
+    }
+
+    return Object.keys(parsed).length === 0;
+  } catch {
+    return false;
+  }
 }
 
 app.listen(port, () => {
