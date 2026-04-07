@@ -9,7 +9,7 @@ export class WatchlistService {
   getWatchlist(): string[] {
     const raw = localStorage.getItem(this.storageKey);
     if (!raw) {
-      return ['RELIANCE', 'TCS', 'HDFCBANK'];
+      return [];
     }
 
     try {

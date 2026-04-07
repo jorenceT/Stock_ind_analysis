@@ -151,7 +151,7 @@ li {
 
 .suggestions {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 4px);
   left: 0;
   right: 0;
   background: #f6f8ff;
@@ -202,20 +202,36 @@ li {
   }
 
   .card {
-    padding: 16px;
+    padding: 14px;
     border-radius: 18px;
   }
 
   .controls {
     position: static;
+    padding-bottom: 12px;
   }
 
   .row {
     flex-direction: column;
+    gap: 8px;
   }
 
   button {
     width: 100%;
+  }
+
+  .input-shell {
+    flex-basis: auto;
+  }
+
+  .suggestions {
+    top: calc(100% + 2px);
+    max-height: 220px;
+  }
+
+  small {
+    margin-top: 6px;
+    line-height: 1.35;
   }
 
   table,

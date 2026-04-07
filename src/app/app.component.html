@@ -70,4 +70,18 @@
       </li>
     </ol>
   </section>
+  <section class="card bottom">
+    <h2>Suggested News</h2>
+    <p *ngIf="newsLoading">Loading MarketAux headlines...</p>
+    <div *ngIf="!newsLoading && !suggestedNews.length">No news matches yet.</div>
+    <ul *ngIf="suggestedNews.length">
+      <li *ngFor="let article of suggestedNews">
+        <a [href]="article.url" target="_blank" rel="noopener noreferrer">
+          <strong>{{ article.title }}</strong>
+        </a>
+        <div>{{ article.source }} | {{ article.publishedAt }}</div>
+        <p>{{ article.snippet }}</p>
+      </li>
+    </ul>
+  </section>
 </div>

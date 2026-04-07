@@ -3,6 +3,7 @@ import { Component, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MarketSearchResult } from './models/market-search-result.model';
 import { StockSignal } from './models/stock.model';
+import { MarketNewsItem, MarketNewsService } from './services/market-news.service';
 import { MarketLookupService } from './services/market-lookup.service';
 import { NotificationService } from './services/notification.service';
 import { SignalService } from './services/signal.service';
@@ -22,6 +23,8 @@ export class AppComponent implements OnInit {
 
   searchResults: MarketSearchResult[] = [];
   searching = false;
+  suggestedNews: MarketNewsItem[] = [];
+  newsLoading = false;
   watchSignals: StockSignal[] = [];
   topPicks: StockSignal[] = [];
   message = '';
@@ -31,6 +34,7 @@ export class AppComponent implements OnInit {
     private readonly stockDataService: StockDataService,
     private readonly watchlistService: WatchlistService,
     private readonly marketLookupService: MarketLookupService,
+    private readonly marketNewsService: MarketNewsService,
     private readonly signalService: SignalService,
     private readonly notificationService: NotificationService
   ) {}
@@ -108,6 +112,7 @@ export class AppComponent implements OnInit {
 
     this.topPicks = this.signalService.getTopPicks(universe);
     void this.refreshLiveWatchlist(watchlist);
+    void this.refreshSuggestedNews(watchlist, this.topPicks.map((pick) => pick.stock.symbol));
   }
 
   private async loadSuggestions(query: string): Promise<void> {
@@ -154,6 +159,23 @@ export class AppComponent implements OnInit {
 
     if (liveSignals.length) {
       this.watchSignals = liveSignals;
+    }
+  }
+
+  private async refreshSuggestedNews(watchlist: string[], topPicks: string[]): Promise<void> {
+    const symbols = [...watchlist, ...topPicks];
+    this.newsLoading = true;
+
+    try {
+      this.suggestedNews = await this.marketNewsService.getSuggestedNews(symbols);
+      if (this.suggestedNews.length) {
+        this.message = 'MarketAux news loaded for your watchlist and top picks.';
+      }
+    } catch (error) {
+      this.suggestedNews = [];
+      this.message = error instanceof Error ? error.message : 'Unable to load market news right now.';
+    } finally {
+      this.newsLoading = false;
     }
   }
 }
