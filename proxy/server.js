@@ -5,6 +5,7 @@ const port = process.env.PORT || 3000;
 const upstream = 'https://query1.finance.yahoo.com';
 const marketauxUpstream = 'https://api.marketaux.com';
 const marketauxApiToken = process.env.MARKETAUX_API_TOKEN;
+const newsApiKey = process.env.NEWSAPI_KEY;
 
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -66,6 +67,14 @@ app.get(/^\/api\/marketaux\/(.*)$/, async (req, res) => {
       }
     });
 
+    if (response.status >= 500) {
+      const fallback = await fetchNewsApi(req.url);
+      if (fallback) {
+        res.status(200).json(fallback);
+        return;
+      }
+    }
+
     const contentType = response.headers.get('content-type') || 'application/json';
     const body = await response.text();
     res.status(response.status).setHeader('content-type', contentType);
@@ -77,6 +86,58 @@ app.get(/^\/api\/marketaux\/(.*)$/, async (req, res) => {
     });
   }
 });
+
+async function fetchNewsApi(originalUrl) {
+  if (!newsApiKey) {
+    return null;
+  }
+
+  const url = new URL(originalUrl, 'http://localhost');
+  const symbols = url.searchParams.get('symbols') || '';
+  const query = symbols
+    .split(',')
+    .map((symbol) => symbol.trim().replace(/\.NS$/i, ''))
+    .filter(Boolean)
+    .join(' OR ');
+
+  if (!query) {
+    return null;
+  }
+
+  const fallbackUrl = new URL('https://newsapi.org/v2/everything');
+  fallbackUrl.searchParams.set('q', query);
+  fallbackUrl.searchParams.set('language', 'en');
+  fallbackUrl.searchParams.set('sortBy', 'publishedAt');
+  fallbackUrl.searchParams.set('pageSize', '10');
+  fallbackUrl.searchParams.set('apiKey', newsApiKey);
+
+  const response = await fetch(fallbackUrl.toString(), {
+    headers: {
+      accept: 'application/json,text/plain,*/*',
+      'user-agent': 'Mozilla/5.0'
+    }
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const data = await response.json();
+  if (!Array.isArray(data.articles)) {
+    return null;
+  }
+
+  return {
+    data: data.articles.map((article) => ({
+      title: article.title,
+      url: article.url,
+      source: article.source?.name ?? 'NewsAPI',
+      published_at: article.publishedAt,
+      description: article.description,
+      symbols: []
+    }))
+  };
+}
 
 app.listen(port, () => {
   console.log(`Market data proxy listening on port ${port}`);
