@@ -67,8 +67,9 @@ app.get(/^\/api\/marketaux\/(.*)$/, async (req, res) => {
     });
 
     const contentType = response.headers.get('content-type') || 'application/json';
+    const body = await response.text();
     res.status(response.status).setHeader('content-type', contentType);
-    res.send(await response.text());
+    res.send(body);
   } catch (error) {
     res.status(502).json({
       error: 'Proxy request failed',
