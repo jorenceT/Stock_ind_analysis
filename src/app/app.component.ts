@@ -365,7 +365,7 @@ export class AppComponent implements OnInit {
       const signal = this.signalService.getSignal(liveStock ?? stock);
       this.watchSignals = this.mergeSignals(this.watchSignals, [signal]);
       if (this.aiApiKey) {
-        const symbolNews = await this.marketNewsService.getNewsForSymbols([stock.symbol], 5);
+        const symbolNews = await this.marketNewsService.getNewsForSymbols([stock.symbol], 5, true);
         const insight = await this.aiAnalysisService.analyzeWatchlistItem({
           apiKey: this.aiApiKey,
           model: this.aiModel,
