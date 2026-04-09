@@ -29,23 +29,33 @@ interface MarketAuxNewsResponse {
 export class MarketNewsService {
   private readonly newsBaseUrl = '/api/marketaux/v1/news/all';
 
-  async getSuggestedNews(symbols: string[]): Promise<MarketNewsItem[]> {
-    const uniqueSymbols = Array.from(
-      new Set(symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean))
-    );
+  async getSuggestedNews(): Promise<MarketNewsItem[]> {
+    return this.getNews({ limit: 10, countries: 'in' });
+  }
 
-    if (!uniqueSymbols.length) {
+  async getNewsForSymbols(symbols: string[], limit = 10): Promise<MarketNewsItem[]> {
+    const cleanedSymbols = symbols.map((symbol) => symbol.trim().toUpperCase()).filter(Boolean);
+    if (!cleanedSymbols.length) {
       return [];
     }
 
-    const params = new URLSearchParams({
-      symbols: uniqueSymbols.join(','),
+    return this.getNews({
+      limit,
+      symbols: cleanedSymbols.join(','),
       filter_entities: 'true',
-      limit: '10',
-      language: 'en'
+      countries: 'in'
     });
+  }
 
-    const data = await this.requestJson<MarketAuxNewsResponse>(`${this.newsBaseUrl}?${params.toString()}`);
+  private async getNews(params: Record<string, string | number | boolean>): Promise<MarketNewsItem[]> {
+    const searchParams = new URLSearchParams(
+      Object.entries(params).reduce<Record<string, string>>((accumulator, [key, value]) => {
+        accumulator[key] = String(value);
+        return accumulator;
+      }, {})
+    );
+
+    const data = await this.requestJson<MarketAuxNewsResponse>(`${this.newsBaseUrl}?${searchParams.toString()}`);
     return (data.data ?? [])
       .map((item) => ({
         title: item.title ?? 'Untitled news item',

@@ -3,7 +3,7 @@
 This is an Angular app scaffold focused on your use-case:
 - Add Indian stocks to a watchlist.
 - Generate simple BUY/SELL/HOLD signals each morning.
-- Show **Top 5 stocks to buy** at the bottom.
+- Show **Top stocks to buy** at the bottom.
 - Send a daily morning browser notification and allow a test notification instantly.
 
 ## Current behavior

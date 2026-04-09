@@ -1,4 +1,7 @@
 import express from 'express';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -6,6 +9,11 @@ const upstream = 'https://query1.finance.yahoo.com';
 const marketauxUpstream = 'https://api.marketaux.com';
 const marketauxApiToken = process.env.MARKETAUX_API_TOKEN;
 const newsApiKey = process.env.NEWSAPI_KEY;
+const cacheDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '.cache');
+const cacheFile = path.join(cacheDir, 'market-news-cache.json');
+const cacheTtlMs = 8 * 60 * 60 * 1000;
+const inMemoryCache = new Map();
+let cacheLoaded = false;
 
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -58,6 +66,16 @@ app.get(/^\/api\/marketaux\/(.*)$/, async (req, res) => {
     const path = req.params[0] || '';
     const search = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
     const separator = search ? '&' : '?';
+    const cacheKey = `marketaux:${path}${search}`;
+
+    const cachedResponse = await getCachedResponse(cacheKey);
+    if (cachedResponse) {
+      res.status(cachedResponse.status).setHeader('content-type', cachedResponse.contentType);
+      res.setHeader('x-cache', 'HIT');
+      res.send(cachedResponse.body);
+      return;
+    }
+
     const targetUrl = `${marketauxUpstream}/${path}${search}${separator}api_token=${encodeURIComponent(marketauxApiToken)}`;
 
     const response = await fetch(targetUrl, {
@@ -70,14 +88,29 @@ app.get(/^\/api\/marketaux\/(.*)$/, async (req, res) => {
     const contentType = response.headers.get('content-type') || 'application/json';
     const body = await response.text();
 
+    const cacheEntry = {
+      status: response.status,
+      contentType,
+      body,
+      cachedAt: Date.now()
+    };
+
     if (response.status >= 500 || isEmptyMarketAuxResponse(body)) {
       const fallback = await fetchNewsApi(req.url);
       if (fallback) {
+        await setCachedResponse(cacheKey, {
+          status: 200,
+          contentType: 'application/json; charset=utf-8',
+          body: JSON.stringify(fallback),
+          cachedAt: Date.now()
+        });
         res.status(200).json(fallback);
         return;
       }
     }
 
+    await setCachedResponse(cacheKey, cacheEntry);
+    res.setHeader('x-cache', 'MISS');
     res.status(response.status).setHeader('content-type', contentType);
     res.send(body);
   } catch (error) {
@@ -126,6 +159,55 @@ async function fetchNewsApi(originalUrl) {
       symbols: []
     }))
   };
+}
+
+async function getCachedResponse(cacheKey) {
+  await ensureCacheLoaded();
+  const entry = inMemoryCache.get(cacheKey);
+  if (!entry) {
+    return null;
+  }
+
+  if (Date.now() - entry.cachedAt > cacheTtlMs) {
+    inMemoryCache.delete(cacheKey);
+    await persistCache();
+    return null;
+  }
+
+  return entry;
+}
+
+async function setCachedResponse(cacheKey, entry) {
+  await ensureCacheLoaded();
+  inMemoryCache.set(cacheKey, entry);
+  await persistCache();
+}
+
+async function ensureCacheLoaded() {
+  if (cacheLoaded) {
+    return;
+  }
+
+  cacheLoaded = true;
+  try {
+    const raw = await readFile(cacheFile, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && parsed.entries && typeof parsed.entries === 'object') {
+      for (const [key, value] of Object.entries(parsed.entries)) {
+        if (value && typeof value === 'object' && typeof value.body === 'string') {
+          inMemoryCache.set(key, value);
+        }
+      }
+    }
+  } catch {
+    // Cache is optional. Start clean when the file does not exist or is invalid.
+  }
+}
+
+async function persistCache() {
+  await mkdir(cacheDir, { recursive: true });
+  const entries = Object.fromEntries(inMemoryCache.entries());
+  await writeFile(cacheFile, JSON.stringify({ entries }, null, 2), 'utf8');
 }
 
 function isEmptyMarketAuxResponse(body) {

@@ -1,7 +1,10 @@
 <div class="container">
-  <header>
-    <h1>{{ title }}</h1>
-    <p>Track Indian stocks, get morning BUY/SELL signals, and a daily top-5 buy shortlist.</p>
+  <header class="hero">
+    <div>
+      <h1>{{ title }}</h1>
+      <p>Track Indian stocks, let Gemini read the latest market news, and surface the top 5 buy ideas from that news flow.</p>
+    </div>
+    <button class="ghost settings-btn" (click)="openAiSettings()">AI Settings</button>
   </header>
 
   <section class="card controls">
@@ -33,7 +36,9 @@
   </section>
 
   <section class="card">
-    <h2>Your Watchlist - Morning Signals</h2>
+    <h2>Watchlist Analysis</h2>
+    <p *ngIf="aiLoading">Gemini is reading the latest market news and building your watchlist view...</p>
+    <p *ngIf="!aiLoading && aiSummary">{{ aiSummary }}</p>
     <table>
       <thead>
         <tr>
@@ -46,16 +51,20 @@
         </tr>
       </thead>
       <tbody>
-        <tr *ngFor="let signal of watchSignals">
+        <tr *ngFor="let signal of watchSignals; let index = index">
           <td data-label="Stock">{{ signal.stock.symbol }}</td>
           <td data-label="Price">₹{{ signal.stock.currentPrice }}</td>
           <td data-label="Day %" [class.up]="signal.stock.dayChangePercent > 0" [class.down]="signal.stock.dayChangePercent < 0">
             {{ signal.stock.dayChangePercent }}%
           </td>
-          <td data-label="Action" [class.buy]="signal.action === 'BUY'" [class.sell]="signal.action === 'SELL'">
-            {{ signal.action }}
+          <td data-label="Action">
+            <span *ngIf="refreshingSymbol && refreshingSymbol === signal.stock.symbol">Fetching data...</span>
+            <span *ngIf="!(refreshingSymbol && refreshingSymbol === signal.stock.symbol)">{{ getResolvedAiInsight(signal.stock.symbol)?.action || 'Fetching data...' }}</span>
           </td>
-          <td data-label="Reason">{{ signal.reason }}</td>
+          <td data-label="Reason">
+            <span *ngIf="refreshingSymbol && refreshingSymbol === signal.stock.symbol">Fetching data...</span>
+            <span *ngIf="!(refreshingSymbol && refreshingSymbol === signal.stock.symbol)">{{ getResolvedAiInsight(signal.stock.symbol)?.reason || 'Fetching data...' }}</span>
+          </td>
           <td data-label="">&nbsp;<button class="danger" (click)="removeStock(signal.stock.symbol)">Remove</button></td>
         </tr>
       </tbody>
@@ -63,18 +72,29 @@
   </section>
 
   <section class="card bottom">
-    <h2>Top 5 Stocks Better to Buy Today</h2>
-    <ol>
-      <li *ngFor="let pick of topPicks">
-        <strong>{{ pick.stock.symbol }}</strong> (₹{{ pick.stock.currentPrice }}) - {{ pick.reason }}
-      </li>
-    </ol>
+    <h2>Top Stocks to Buy</h2>
+    <div class="card-loader" *ngIf="aiLoading">
+      <span class="spinner" aria-hidden="true"></span>
+      <p>Building the top 5 from news...</p>
+    </div>
+    <ng-container *ngIf="!aiLoading">
+      <div *ngIf="!aiTopPicks.length">No top picks yet.</div>
+      <ol *ngIf="aiTopPicks.length">
+        <li *ngFor="let pick of aiTopPicks">
+          <strong>{{ pick.symbol }}</strong> - {{ pick.summary }} ({{ pick.reason }})
+        </li>
+      </ol>
+    </ng-container>
   </section>
+
   <section class="card bottom">
     <h2>Suggested News</h2>
-    <p *ngIf="newsLoading">Loading MarketAux headlines...</p>
+    <div class="card-loader" *ngIf="newsLoading">
+      <span class="spinner" aria-hidden="true"></span>
+      <p>Loading MarketAux headlines...</p>
+    </div>
     <div *ngIf="!newsLoading && !suggestedNews.length">No news matches yet.</div>
-    <ul *ngIf="suggestedNews.length">
+    <ul *ngIf="!newsLoading && suggestedNews.length">
       <li *ngFor="let article of suggestedNews">
         <a [href]="article.url" target="_blank" rel="noopener noreferrer">
           <strong>{{ article.title }}</strong>
@@ -84,4 +104,25 @@
       </li>
     </ul>
   </section>
+
+  <div class="modal-backdrop" *ngIf="aiSettingsOpen">
+    <section class="card modal">
+      <h2>AI Setup</h2>
+      <p>Get your Gemini API key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>.</p>
+      <p>Paste the key here, choose a Gemini model, and the app will use news to generate buy ideas.</p>
+      <label>
+        Gemini API Key
+        <input [(ngModel)]="aiApiKey" placeholder="Paste Gemini API key" />
+      </label>
+      <label>
+        Gemini Model
+        <input [(ngModel)]="aiModel" placeholder="gemma-3-27b-it" />
+      </label>
+      <div class="modal-actions">
+        <button (click)="saveAiSettings()">Save & Run</button>
+        <button class="ghost" (click)="aiSettingsOpen = false" [disabled]="!aiApiKey">Close</button>
+      </div>
+      <small *ngIf="aiErrorMessage">{{ aiErrorMessage }}</small>
+    </section>
+  </div>
 </div>

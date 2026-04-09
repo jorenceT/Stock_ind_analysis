@@ -1,14 +1,15 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { AiAnalysisResult, AiAnalysisService, AiStockInsight } from './services/ai-analysis.service';
 import { MarketSearchResult } from './models/market-search-result.model';
-import { StockSignal } from './models/stock.model';
+import { Stock, StockSignal } from './models/stock.model';
 import { MarketNewsItem, MarketNewsService } from './services/market-news.service';
 import { MarketLookupService } from './services/market-lookup.service';
 import { NotificationService } from './services/notification.service';
 import { SignalService } from './services/signal.service';
 import { StockDataService } from './services/stock-data.service';
-import { WatchlistService } from './services/watchlist.service';
+import { WatchlistItem, WatchlistService } from './services/watchlist.service';
 
 @Component({
   selector: 'app-root',
@@ -20,11 +21,21 @@ import { WatchlistService } from './services/watchlist.service';
 export class AppComponent implements OnInit {
   title = 'Indian Stock Morning Advisor';
   addSymbol = '';
+  aiApiKey = localStorage.getItem('geminiApiKey') ?? '';
+  aiModel = localStorage.getItem('geminiModel') ?? 'gemma-3-27b-it';
+  aiSettingsOpen = !this.aiApiKey;
+  aiErrorMessage = '';
+  aiSummary = '';
+  aiWatchlistInsights: AiStockInsight[] = [];
+  aiTopPicks: AiStockInsight[] = [];
 
   searchResults: MarketSearchResult[] = [];
   searching = false;
   suggestedNews: MarketNewsItem[] = [];
   newsLoading = false;
+  analysisLoading = false;
+  aiLoading = false;
+  refreshingSymbol: string | null = null;
   watchSignals: StockSignal[] = [];
   topPicks: StockSignal[] = [];
   message = '';
@@ -35,12 +46,13 @@ export class AppComponent implements OnInit {
     private readonly watchlistService: WatchlistService,
     private readonly marketLookupService: MarketLookupService,
     private readonly marketNewsService: MarketNewsService,
+    private readonly aiAnalysisService: AiAnalysisService,
     private readonly signalService: SignalService,
     private readonly notificationService: NotificationService
   ) {}
 
   async ngOnInit(): Promise<void> {
-    this.refreshData();
+    void this.refreshData();
 
     const canNotify = await this.notificationService.requestPermission();
     if (canNotify) {
@@ -62,10 +74,10 @@ export class AppComponent implements OnInit {
       return;
     }
 
-    this.watchlistService.addToWatchlist(stock.symbol);
+    this.watchlistService.addToWatchlist(stock.symbol, stock.companyName);
     this.addSymbol = '';
     this.searchResults = [];
-    this.refreshData();
+    void this.refreshNewWatchlistItem(stock.symbol, stock.companyName);
   }
 
   onSymbolInput(): void {
@@ -93,7 +105,7 @@ export class AppComponent implements OnInit {
 
   removeStock(symbol: string): void {
     this.watchlistService.removeFromWatchlist(symbol);
-    this.refreshData();
+    void this.refreshData();
   }
 
   sendNow(): void {
@@ -101,18 +113,62 @@ export class AppComponent implements OnInit {
     this.message = 'Notification sent now.';
   }
 
-  private refreshData(): void {
-    const universe = this.stockDataService.getUniverse();
-    const watchlist = this.watchlistService.getWatchlist();
+  saveAiSettings(): void {
+    this.aiApiKey = this.aiApiKey.trim();
+    this.aiModel = this.aiModel.trim() || 'gemma-3-27b-it';
+    if (!this.aiApiKey) {
+      this.aiErrorMessage = 'Gemini API key is required.';
+      this.aiSettingsOpen = true;
+      return;
+    }
 
-    this.watchSignals = watchlist
-      .map((symbol) => universe.find((stock) => stock.symbol === symbol))
-      .filter((stock): stock is NonNullable<typeof stock> => Boolean(stock))
-      .map((stock) => this.signalService.getSignal(stock));
+    localStorage.setItem('geminiApiKey', this.aiApiKey);
+    localStorage.setItem('geminiModel', this.aiModel);
+    this.aiErrorMessage = '';
+    this.aiSettingsOpen = false;
+    void this.runAiAnalysis();
+  }
+
+  openAiSettings(message?: string): void {
+    this.aiErrorMessage = message ?? '';
+    this.aiSettingsOpen = true;
+  }
+
+  getAiInsight(symbol: string): AiStockInsight | undefined {
+    const normalized = this.normalizeSymbol(symbol);
+    return this.aiWatchlistInsights.find((insight) => this.normalizeSymbol(insight.symbol) === normalized);
+  }
+
+  getResolvedAiInsight(symbol: string): AiStockInsight | undefined {
+    const insight = this.getAiInsight(symbol);
+    if (insight) {
+      return insight;
+    }
+
+    if (this.refreshingSymbol && this.normalizeSymbol(this.refreshingSymbol) === this.normalizeSymbol(symbol)) {
+      return undefined;
+    }
+
+    return {
+      symbol,
+      action: 'HOLD',
+      reason: 'AI analysis getting loaded...',
+      summary: 'No watchlist insight returned.'
+    };
+  }
+
+  private async refreshData(): Promise<void> {
+    const universe = this.stockDataService.getUniverse();
+    const watchlistItems = this.watchlistService.getWatchlistItems();
+    const watchlistStocks = watchlistItems.map((item) => this.toWatchlistStock(item, universe));
+
+    this.watchSignals = watchlistStocks.map((stock) => this.signalService.getSignal(stock));
 
     this.topPicks = this.signalService.getTopPicks(universe);
-    void this.refreshLiveWatchlist(watchlist);
-    void this.refreshSuggestedNews(watchlist, this.topPicks.map((pick) => pick.stock.symbol));
+    this.analysisLoading = true;
+    await this.refreshLiveWatchlist(watchlistItems, universe);
+    await this.refreshSuggestedNewsForWatchlist(watchlistStocks, this.topPicks);
+    await this.runAiAnalysis(watchlistStocks);
   }
 
   private async loadSuggestions(query: string): Promise<void> {
@@ -137,39 +193,52 @@ export class AppComponent implements OnInit {
         return;
       }
 
-      this.watchlistService.addToWatchlist(result.symbol);
+      this.watchlistService.addToWatchlist(result.symbol, result.companyName);
       this.addSymbol = '';
       this.searchResults = [];
       this.message = `${result.companyName} added to your watchlist.`;
-      this.refreshData();
+      await this.refreshNewWatchlistItem(result.symbol, result.companyName);
     } catch (error) {
       this.message = error instanceof Error ? error.message : 'Unable to add symbol right now.';
     }
   }
 
-  private async refreshLiveWatchlist(watchlist: string[]): Promise<void> {
-    const liveSignals = (
+  private async refreshLiveWatchlist(
+    watchlistItems: WatchlistItem[],
+    universe: ReturnType<StockDataService['getUniverse']>
+  ): Promise<void> {
+    const snapshotSignals = (
       await Promise.all(
-        watchlist.map(async (symbol) => {
-          const liveStock = await this.marketLookupService.getLiveStock(symbol);
-          return liveStock ? this.signalService.getSignal(liveStock) : undefined;
+        watchlistItems.map(async (item) => {
+          const fallback = this.toWatchlistStock(item, universe);
+          const liveStock = await this.marketLookupService.getLiveStock(item.symbol, item.companyName);
+          return this.signalService.getSignal(liveStock ?? fallback);
         })
       )
     ).filter((signal): signal is StockSignal => Boolean(signal));
 
-    if (liveSignals.length) {
-      this.watchSignals = liveSignals;
+    if (snapshotSignals.length) {
+      this.watchSignals = snapshotSignals;
     }
   }
 
-  private async refreshSuggestedNews(watchlist: string[], topPicks: string[]): Promise<void> {
-    const symbols = [...watchlist, ...topPicks];
+  private async refreshSuggestedNewsForWatchlist(
+    watchlistStocks: Stock[],
+    topPicks: StockSignal[]
+  ): Promise<void> {
     this.newsLoading = true;
 
     try {
-      this.suggestedNews = await this.marketNewsService.getSuggestedNews(symbols);
+      const watchlistSymbols = watchlistStocks.map((stock) => stock.symbol);
+      const topPickSymbols = topPicks.map((pick) => pick.stock.symbol);
+      const [watchlistNews, topPickNews] = await Promise.all([
+        this.marketNewsService.getNewsForSymbols(watchlistSymbols, Math.max(10, watchlistSymbols.length * 2)),
+        this.marketNewsService.getNewsForSymbols(topPickSymbols, Math.max(10, topPickSymbols.length * 2))
+      ]);
+
+      this.suggestedNews = this.mergeNews(watchlistNews, topPickNews);
       if (this.suggestedNews.length) {
-        this.message = 'MarketAux news loaded for your watchlist and top picks.';
+        this.message = 'Market news loaded for watchlist and top pick stocks.';
       }
     } catch (error) {
       this.suggestedNews = [];
@@ -177,5 +246,166 @@ export class AppComponent implements OnInit {
     } finally {
       this.newsLoading = false;
     }
+  }
+
+  private async runAiAnalysis(watchlistStocks?: Stock[]): Promise<void> {
+    if (!this.aiApiKey) {
+      this.openAiSettings('Add your Gemini API key to generate news-based stock picks.');
+      this.aiLoading = false;
+      this.analysisLoading = false;
+      return;
+    }
+
+    this.aiLoading = true;
+    this.analysisLoading = true;
+
+    try {
+      const universe = this.stockDataService.getUniverse();
+      const activeWatchlistStocks =
+        watchlistStocks ?? this.watchlistService.getWatchlistItems().map((item) => this.toWatchlistStock(item, universe));
+
+      const result: AiAnalysisResult = await this.aiAnalysisService.analyzeNews({
+        apiKey: this.aiApiKey,
+        model: this.aiModel,
+        news: this.suggestedNews,
+        watchlist: activeWatchlistStocks
+      });
+
+      this.aiSummary = result.marketSummary;
+      this.aiWatchlistInsights = result.watchlistInsights;
+      this.aiTopPicks = result.topPicks;
+      this.watchSignals = this.watchSignals.map((signal) => {
+        const insight = this.getResolvedAiInsight(signal.stock.symbol);
+        return insight
+          ? {
+              ...signal,
+              action: insight.action,
+              reason: insight.reason
+            }
+          : signal;
+      });
+      this.message = 'AI analysis updated from MarketAux/NewsAPI headlines.';
+    } catch (error) {
+      this.aiSummary = '';
+      this.aiWatchlistInsights = [];
+      this.aiTopPicks = [];
+      this.openAiSettings(error instanceof Error ? error.message : 'Unable to complete AI analysis.');
+    } finally {
+      this.aiLoading = false;
+      this.analysisLoading = false;
+    }
+  }
+
+  private async refreshNewWatchlistItem(symbol: string, companyName?: string): Promise<void> {
+    this.refreshingSymbol = symbol;
+    const universe = this.stockDataService.getUniverse();
+    const watchlistItems = this.watchlistService.getWatchlistItems();
+    const item = watchlistItems.find((entry) => this.normalizeSymbol(entry.symbol) === this.normalizeSymbol(symbol));
+    if (!item) {
+      this.refreshingSymbol = null;
+      return;
+    }
+
+    const stock = this.toWatchlistStock(item, universe);
+
+    try {
+      const liveStock = await this.marketLookupService.getLiveStock(stock.symbol, companyName ?? stock.companyName);
+      const signal = this.signalService.getSignal(liveStock ?? stock);
+      this.watchSignals = this.mergeSignals(this.watchSignals, [signal]);
+      if (this.aiApiKey) {
+        const symbolNews = await this.marketNewsService.getNewsForSymbols([stock.symbol], 5);
+        const insight = await this.aiAnalysisService.analyzeWatchlistItem({
+          apiKey: this.aiApiKey,
+          model: this.aiModel,
+          news: symbolNews,
+          stock: liveStock ?? stock
+        });
+
+        this.aiWatchlistInsights = this.upsertInsight(this.aiWatchlistInsights, insight);
+        this.watchSignals = this.watchSignals.map((itemSignal) =>
+          this.normalizeSymbol(itemSignal.stock.symbol) === this.normalizeSymbol(stock.symbol)
+            ? {
+                ...itemSignal,
+                action: insight.action,
+                reason: insight.reason
+              }
+            : itemSignal
+        );
+      }
+    } catch (error) {
+      this.message = error instanceof Error ? error.message : 'Unable to refresh the new watchlist item.';
+    } finally {
+      this.refreshingSymbol = null;
+    }
+  }
+
+  private mergeSignals(existing: StockSignal[], incoming: StockSignal[]): StockSignal[] {
+    const merged = [...existing];
+    for (const signal of incoming) {
+      const index = merged.findIndex((item) => this.normalizeSymbol(item.stock.symbol) === this.normalizeSymbol(signal.stock.symbol));
+      if (index >= 0) {
+        merged[index] = signal;
+      } else {
+        merged.push(signal);
+      }
+    }
+
+    return merged;
+  }
+
+  private upsertInsight(existing: AiStockInsight[], incoming: AiStockInsight): AiStockInsight[] {
+    const merged = [...existing];
+    const index = merged.findIndex((item) => this.normalizeSymbol(item.symbol) === this.normalizeSymbol(incoming.symbol));
+    if (index >= 0) {
+      merged[index] = incoming;
+    } else {
+      merged.push(incoming);
+    }
+
+    return merged;
+  }
+
+  private mergeNews(primary: MarketNewsItem[], secondary: MarketNewsItem[]): MarketNewsItem[] {
+    const seen = new Set<string>();
+    const merged: MarketNewsItem[] = [];
+
+    for (const item of [...primary, ...secondary]) {
+      const key = `${item.title}|${item.url}`;
+      if (seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      merged.push(item);
+    }
+
+    return merged;
+  }
+
+  private normalizeSymbol(symbol: string): string {
+    return symbol.trim().toUpperCase().replace(/\.NS$/i, '').replace(/\.BO$/i, '');
+  }
+
+  private toWatchlistStock(item: WatchlistItem, universe: ReturnType<StockDataService['getUniverse']>) {
+    const normalized = this.normalizeSymbol(item.symbol);
+    const matched = universe.find((stock) => this.normalizeSymbol(stock.symbol) === normalized);
+
+    if (matched) {
+      return {
+        ...matched,
+        symbol: item.symbol,
+        companyName: item.companyName || matched.companyName
+      };
+    }
+
+    return {
+      symbol: item.symbol,
+      companyName: item.companyName || item.symbol,
+      exchange: 'NSE' as const,
+      currentPrice: 0,
+      dayChangePercent: 0,
+      movingAverage20: 0,
+      rsi: 50
+    };
   }
 }

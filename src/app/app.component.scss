@@ -9,6 +9,13 @@ header {
   margin-bottom: 18px;
 }
 
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
 h1 {
   margin: 0 0 8px;
   font-size: clamp(2rem, 6vw, 3.5rem);
@@ -35,6 +42,33 @@ p {
   border: 1px solid rgba(76, 98, 183, 0.38);
   box-shadow: 0 16px 45px rgba(0, 0, 0, 0.22);
   backdrop-filter: blur(10px);
+}
+
+.card-loader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+}
+
+.card-loader p {
+  margin: 0;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(143, 176, 255, 0.28);
+  border-top-color: #8fb0ff;
+  animation: spin 0.8s linear infinite;
+  flex: 0 0 auto;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .row {
@@ -85,6 +119,10 @@ button {
 
 button.ghost {
   background: transparent;
+}
+
+.settings-btn {
+  white-space: nowrap;
 }
 
 button.danger {
@@ -147,6 +185,41 @@ ol {
 li {
   margin-bottom: 10px;
   line-height: 1.5;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 10, 28, 0.72);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  z-index: 20;
+}
+
+.modal {
+  width: min(680px, 100%);
+}
+
+.modal label {
+  display: block;
+  margin: 14px 0;
+  color: #dce3ff;
+  font-size: 14px;
+}
+
+.modal input {
+  margin-top: 6px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.modal a {
+  color: #8fb0ff;
 }
 
 .suggestions {
@@ -216,6 +289,14 @@ li {
     gap: 8px;
   }
 
+  .hero {
+    flex-direction: column;
+  }
+
+  .settings-btn {
+    width: auto;
+  }
+
   button {
     width: 100%;
   }
@@ -227,6 +308,10 @@ li {
   .suggestions {
     top: calc(100% + 2px);
     max-height: 220px;
+  }
+
+  .modal-actions button {
+    width: 100%;
   }
 
   small {
