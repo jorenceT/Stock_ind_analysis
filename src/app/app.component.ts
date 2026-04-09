@@ -6,6 +6,7 @@ import { MarketSearchResult } from './models/market-search-result.model';
 import { Stock, StockSignal } from './models/stock.model';
 import { MarketNewsItem, MarketNewsService } from './services/market-news.service';
 import { MarketLookupService } from './services/market-lookup.service';
+import { DashboardCacheService } from './services/dashboard-cache.service';
 import { NotificationService } from './services/notification.service';
 import { SignalService } from './services/signal.service';
 import { StockDataService } from './services/stock-data.service';
@@ -46,13 +47,28 @@ export class AppComponent implements OnInit {
     private readonly watchlistService: WatchlistService,
     private readonly marketLookupService: MarketLookupService,
     private readonly marketNewsService: MarketNewsService,
+    private readonly dashboardCacheService: DashboardCacheService,
     private readonly aiAnalysisService: AiAnalysisService,
     private readonly signalService: SignalService,
     private readonly notificationService: NotificationService
   ) {}
 
   async ngOnInit(): Promise<void> {
-    void this.refreshData();
+    const cached = this.dashboardCacheService.loadSnapshot();
+    if (cached) {
+      this.watchSignals = cached.watchSignals ?? [];
+      this.suggestedNews = cached.suggestedNews ?? [];
+      this.aiSummary = cached.aiSummary ?? '';
+      this.aiWatchlistInsights = cached.aiWatchlistInsights ?? [];
+      this.aiTopPicks = cached.aiTopPicks ?? [];
+      this.topPicks = cached.topPicks ?? [];
+      this.message = cached.message || 'Loaded cached dashboard data.';
+    }
+
+    if (!cached || this.dashboardCacheService.isExpired(cached.savedAt)) {
+      this.message = cached ? 'Cached data expired. Refreshing market data...' : 'Loading live market data...';
+      void this.refreshData(true);
+    }
 
     const canNotify = await this.notificationService.requestPermission();
     if (canNotify) {
@@ -157,7 +173,7 @@ export class AppComponent implements OnInit {
     };
   }
 
-  private async refreshData(): Promise<void> {
+  private async refreshData(forceRefresh = false): Promise<void> {
     const universe = this.stockDataService.getUniverse();
     const watchlistItems = this.watchlistService.getWatchlistItems();
     const watchlistStocks = watchlistItems.map((item) => this.toWatchlistStock(item, universe));
@@ -166,9 +182,27 @@ export class AppComponent implements OnInit {
 
     this.topPicks = this.signalService.getTopPicks(universe);
     this.analysisLoading = true;
-    await this.refreshLiveWatchlist(watchlistItems, universe);
-    await this.refreshSuggestedNewsForWatchlist(watchlistStocks, this.topPicks);
-    await this.runAiAnalysis(watchlistStocks);
+    if (forceRefresh || !this.watchSignals.length) {
+      await this.refreshLiveWatchlist(watchlistItems, universe);
+    }
+
+    if (forceRefresh || !this.suggestedNews.length) {
+      await this.refreshSuggestedNewsForWatchlist(watchlistStocks, this.topPicks);
+    }
+
+    if (forceRefresh || !this.aiWatchlistInsights.length || !this.aiSummary) {
+      await this.runAiAnalysis(watchlistStocks);
+    }
+
+    this.dashboardCacheService.saveSnapshot({
+      watchSignals: this.watchSignals,
+      suggestedNews: this.suggestedNews,
+      aiSummary: this.aiSummary,
+      aiWatchlistInsights: this.aiWatchlistInsights,
+      aiTopPicks: this.aiTopPicks,
+      topPicks: this.topPicks,
+      message: this.message
+    });
   }
 
   private async loadSuggestions(query: string): Promise<void> {
@@ -240,6 +274,15 @@ export class AppComponent implements OnInit {
       if (this.suggestedNews.length) {
         this.message = 'Market news loaded for watchlist and top pick stocks.';
       }
+      this.dashboardCacheService.saveSnapshot({
+        watchSignals: this.watchSignals,
+        suggestedNews: this.suggestedNews,
+        aiSummary: this.aiSummary,
+        aiWatchlistInsights: this.aiWatchlistInsights,
+        aiTopPicks: this.aiTopPicks,
+        topPicks: this.topPicks,
+        message: this.message
+      });
     } catch (error) {
       this.suggestedNews = [];
       this.message = error instanceof Error ? error.message : 'Unable to load market news right now.';
@@ -285,6 +328,15 @@ export class AppComponent implements OnInit {
           : signal;
       });
       this.message = 'AI analysis updated from MarketAux/NewsAPI headlines.';
+      this.dashboardCacheService.saveSnapshot({
+        watchSignals: this.watchSignals,
+        suggestedNews: this.suggestedNews,
+        aiSummary: this.aiSummary,
+        aiWatchlistInsights: this.aiWatchlistInsights,
+        aiTopPicks: this.aiTopPicks,
+        topPicks: this.topPicks,
+        message: this.message
+      });
     } catch (error) {
       this.aiSummary = '';
       this.aiWatchlistInsights = [];
