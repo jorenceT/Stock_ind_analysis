@@ -173,6 +173,10 @@ export class AppComponent implements OnInit {
     };
   }
 
+  get isBuilding(): boolean {
+    return this.analysisLoading || this.newsLoading || this.aiLoading;
+  }
+
   private async refreshData(forceRefresh = false): Promise<void> {
     const universe = this.stockDataService.getUniverse();
     const watchlistItems = this.watchlistService.getWatchlistItems();

@@ -1,4 +1,14 @@
 <div class="container">
+  <div class="build-overlay" *ngIf="isBuilding">
+    <div class="build-panel">
+      <span class="spinner" aria-hidden="true"></span>
+      <div>
+        <strong>Building your dashboard</strong>
+        <p>Refreshing watchlist, live data, and news. Please wait a moment.</p>
+      </div>
+    </div>
+  </div>
+
   <header class="hero">
     <div>
       <h1>{{ title }}</h1>
@@ -14,6 +24,7 @@
         <input
           [(ngModel)]="addSymbol"
           (input)="onSymbolInput()"
+          [disabled]="isBuilding"
           placeholder="Search NSE symbol or company name"
           autocomplete="off"
         />
@@ -22,6 +33,7 @@
             type="button"
             class="suggestion"
             *ngFor="let result of searchResults"
+            [disabled]="isBuilding"
             (click)="selectSuggestion(result)"
           >
             <strong>{{ result.symbol }}</strong>
@@ -29,8 +41,8 @@
           </button>
         </div>
       </div>
-      <button (click)="addStock()">Add</button>
-      <button class="ghost" (click)="sendNow()">Send Test Notification</button>
+      <button (click)="addStock()" [disabled]="isBuilding">Add</button>
+      <button class="ghost" (click)="sendNow()" [disabled]="isBuilding">Send Test Notification</button>
     </div>
     <small>{{ searching ? 'Searching live NSE data...' : message }}</small>
   </section>
@@ -65,7 +77,7 @@
             <span *ngIf="refreshingSymbol && refreshingSymbol === signal.stock.symbol">Fetching data...</span>
             <span *ngIf="!(refreshingSymbol && refreshingSymbol === signal.stock.symbol)">{{ getResolvedAiInsight(signal.stock.symbol)?.reason || 'Fetching data...' }}</span>
           </td>
-          <td data-label="">&nbsp;<button class="danger" (click)="removeStock(signal.stock.symbol)">Remove</button></td>
+          <td data-label="">&nbsp;<button class="danger" (click)="removeStock(signal.stock.symbol)" [disabled]="isBuilding">Remove</button></td>
         </tr>
       </tbody>
     </table>
@@ -119,7 +131,7 @@
         <input [(ngModel)]="aiModel" placeholder="gemma-3-27b-it" />
       </label>
       <div class="modal-actions">
-        <button (click)="saveAiSettings()">Save & Run</button>
+        <button (click)="saveAiSettings()" [disabled]="isBuilding">Save & Run</button>
         <button class="ghost" (click)="aiSettingsOpen = false" [disabled]="!aiApiKey">Close</button>
       </div>
       <small *ngIf="aiErrorMessage">{{ aiErrorMessage }}</small>
