@@ -1,4 +1,4 @@
-# Indian Stock Morning Advisor (Angular)
+# Mini AI stock advisor (Angular)
 
 This is an Angular app scaffold focused on your use-case:
 - Add Indian stocks to a watchlist.

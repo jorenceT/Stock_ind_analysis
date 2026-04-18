@@ -20,7 +20,7 @@ import { WatchlistItem, WatchlistService } from './services/watchlist.service';
   styleUrl: './app.component.scss'
 })
 export class AppComponent implements OnInit {
-  title = 'Indian Stock Morning Advisor';
+  title = 'Mini AI stock advisor';
   addSymbol = '';
   aiApiKey = localStorage.getItem('geminiApiKey') ?? '';
   aiModel = localStorage.getItem('geminiModel') ?? 'gemma-3-27b-it';
