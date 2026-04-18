@@ -63,13 +63,35 @@ export class MarketLookupService {
     const results = await this.searchSymbols(query);
     const normalized = this.normalize(query);
 
-    return (
-      results.find((item) => this.normalize(item.symbol) === normalized) ??
-      results.find((item) => this.normalize(item.companyName) === normalized) ??
-      results.find((item) => this.normalize(item.symbol).startsWith(normalized)) ??
-      results.find((item) => this.normalize(item.companyName).includes(normalized)) ??
-      results[0]
-    );
+    // Try exact matches first
+    const exactSymbolMatch = results.find((item) => this.normalize(item.symbol) === normalized);
+    if (exactSymbolMatch) {
+      return exactSymbolMatch;
+    }
+
+    const exactNameMatch = results.find((item) => this.normalize(item.companyName) === normalized);
+    if (exactNameMatch) {
+      return exactNameMatch;
+    }
+
+    // Try partial matches
+    const startsWithName = results.find((item) => this.normalize(item.companyName).startsWith(normalized));
+    if (startsWithName) {
+      return startsWithName;
+    }
+
+    const includesInName = results.find((item) => this.normalize(item.companyName).includes(normalized));
+    if (includesInName) {
+      return includesInName;
+    }
+
+    const startsWithSymbol = results.find((item) => this.normalize(item.symbol).startsWith(normalized));
+    if (startsWithSymbol) {
+      return startsWithSymbol;
+    }
+
+    // Return first result if no matches found
+    return results[0];
   }
 
   async getLiveStock(symbol: string, fallbackName?: string): Promise<Stock | undefined> {
