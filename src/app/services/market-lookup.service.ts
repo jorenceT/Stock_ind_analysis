@@ -61,42 +61,60 @@ export class MarketLookupService {
 
   async resolveSymbol(query: string): Promise<MarketSearchResult | undefined> {
     const results = await this.searchSymbols(query);
-    const normalized = query.trim().toUpperCase();
+    const normalized = this.normalize(query);
 
     return (
-      results.find((item) => item.symbol.toUpperCase() === normalized) ??
-      results.find((item) => item.symbol.toUpperCase().startsWith(normalized)) ??
+      results.find((item) => this.normalize(item.symbol) === normalized) ??
+      results.find((item) => this.normalize(item.companyName) === normalized) ??
+      results.find((item) => this.normalize(item.symbol).startsWith(normalized)) ??
+      results.find((item) => this.normalize(item.companyName).includes(normalized)) ??
       results[0]
     );
   }
 
   async getLiveStock(symbol: string, fallbackName?: string): Promise<Stock | undefined> {
-    const data = await this.requestJson<YahooChartResponse>(
-      `${this.chartBaseUrl}/${encodeURIComponent(symbol)}?interval=1d&range=1mo`
-    );
-    const result = data.chart?.result?.[0];
-    const meta = result?.meta;
-    const closes = (result?.indicators?.quote?.[0]?.close ?? []).filter((value): value is number => typeof value === 'number');
+    const path = `${this.chartBaseUrl}/${encodeURIComponent(symbol)}?interval=1d&range=1mo`;
+    let lastError: unknown;
 
-    if (!meta?.regularMarketPrice || closes.length === 0) {
-      return undefined;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const data = await this.requestJson<YahooChartResponse>(path);
+        const result = data.chart?.result?.[0];
+        const meta = result?.meta;
+        const closes = (result?.indicators?.quote?.[0]?.close ?? []).filter((value): value is number => typeof value === 'number');
+
+        if (!meta?.regularMarketPrice || closes.length === 0) {
+          continue;
+        }
+
+        const currentPrice = meta.regularMarketPrice;
+        const previousClose = meta.chartPreviousClose ?? closes[closes.length - 2] ?? currentPrice;
+        const dayChangePercent = previousClose ? Number((((currentPrice - previousClose) / previousClose) * 100).toFixed(2)) : 0;
+        const movingAverage20 = this.average(closes.slice(-20));
+        const rsi = this.calculateRsi(closes);
+
+        return {
+          symbol: symbol.toUpperCase(),
+          companyName: meta.shortName ?? fallbackName ?? symbol.toUpperCase(),
+          exchange: 'NSE',
+          currentPrice,
+          dayChangePercent,
+          movingAverage20,
+          rsi
+        };
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) {
+          await this.delay(250 * (attempt + 1));
+        }
+      }
     }
 
-    const currentPrice = meta.regularMarketPrice;
-    const previousClose = meta.chartPreviousClose ?? closes[closes.length - 2] ?? currentPrice;
-    const dayChangePercent = previousClose ? Number((((currentPrice - previousClose) / previousClose) * 100).toFixed(2)) : 0;
-    const movingAverage20 = this.average(closes.slice(-20));
-    const rsi = this.calculateRsi(closes);
+    if (lastError instanceof Error) {
+      throw lastError;
+    }
 
-    return {
-      symbol: symbol.toUpperCase(),
-      companyName: meta.shortName ?? fallbackName ?? symbol.toUpperCase(),
-      exchange: 'NSE',
-      currentPrice,
-      dayChangePercent,
-      movingAverage20,
-      rsi
-    };
+    return undefined;
   }
 
   private average(values: number[]): number {
@@ -163,5 +181,13 @@ export class MarketLookupService {
     }
 
     return `https://query1.finance.yahoo.com${path.replace(/^\/api\/yahoo/, '')}`;
+  }
+
+  private normalize(value: string): string {
+    return value.trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

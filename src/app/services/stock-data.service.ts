@@ -25,4 +25,21 @@ export class StockDataService {
   findBySymbol(symbol: string): Stock | undefined {
     return this.sampleStocks.find((stock) => stock.symbol.toLowerCase() === symbol.toLowerCase());
   }
+
+  findByName(name: string): Stock | undefined {
+    const normalized = this.normalize(name);
+    if (!normalized) {
+      return undefined;
+    }
+
+    return this.sampleStocks.find((stock) => {
+      const symbol = this.normalize(stock.symbol);
+      const companyName = this.normalize(stock.companyName);
+      return symbol === normalized || companyName === normalized || companyName.includes(normalized);
+    });
+  }
+
+  private normalize(value: string): string {
+    return value.trim().toLowerCase().replace(/\s+/g, ' ');
+  }
 }

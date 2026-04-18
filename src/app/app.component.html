@@ -42,6 +42,7 @@
         </div>
       </div>
       <button (click)="addStock()" [disabled]="isBuilding">Add</button>
+      <button class="ghost" (click)="getLatestNews()" [disabled]="isBuilding || newsLoading">Get Latest News</button>
       <button class="ghost" (click)="sendNow()" [disabled]="isBuilding">Send Test Notification</button>
     </div>
     <small>{{ searching ? 'Searching live NSE data...' : message }}</small>

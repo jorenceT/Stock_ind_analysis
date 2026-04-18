@@ -65,7 +65,10 @@ export class AppComponent implements OnInit {
       this.message = cached.message || 'Loaded cached dashboard data.';
     }
 
-    if (!cached || this.dashboardCacheService.isExpired(cached.savedAt)) {
+    const watchlistItems = this.watchlistService.getWatchlistItems();
+    const watchlistNeedsSync = this.watchSignals.length !== watchlistItems.length || !this.watchlistMatchesSignals(watchlistItems);
+
+    if (!cached || this.dashboardCacheService.isExpired(cached.savedAt) || watchlistNeedsSync) {
       this.message = cached ? 'Cached data expired. Refreshing market data...' : 'Loading live market data...';
       void this.refreshData(true);
     }
@@ -77,6 +80,8 @@ export class AppComponent implements OnInit {
     } else {
       this.message = 'Enable browser notifications for daily morning buy/sell alerts.';
     }
+
+    void this.recoverMissingAnalysis();
   }
 
   addStock(): void {
@@ -84,7 +89,7 @@ export class AppComponent implements OnInit {
       return;
     }
 
-    const stock = this.stockDataService.findBySymbol(this.addSymbol);
+    const stock = this.stockDataService.findBySymbol(this.addSymbol) ?? this.stockDataService.findByName(this.addSymbol);
     if (!stock) {
       void this.addFromLiveLookup(this.addSymbol);
       return;
@@ -121,12 +126,32 @@ export class AppComponent implements OnInit {
 
   removeStock(symbol: string): void {
     this.watchlistService.removeFromWatchlist(symbol);
-    void this.refreshData();
+    this.watchSignals = this.watchSignals.filter(
+      (signal) => this.normalizeSymbol(signal.stock.symbol) !== this.normalizeSymbol(symbol)
+    );
+    this.aiWatchlistInsights = this.aiWatchlistInsights.filter(
+      (insight) => this.normalizeSymbol(insight.symbol) !== this.normalizeSymbol(symbol)
+    );
+    this.topPicks = this.topPicks.filter((pick) => this.normalizeSymbol(pick.stock.symbol) !== this.normalizeSymbol(symbol));
+    this.message = 'Watchlist item removed.';
+    this.dashboardCacheService.saveSnapshot({
+      watchSignals: this.watchSignals,
+      suggestedNews: this.suggestedNews,
+      aiSummary: this.aiSummary,
+      aiWatchlistInsights: this.aiWatchlistInsights,
+      aiTopPicks: this.aiTopPicks,
+      topPicks: this.topPicks,
+      message: this.message
+    });
   }
 
   sendNow(): void {
     this.notificationService.sendDigest(this.watchSignals, this.topPicks);
     this.message = 'Notification sent now.';
+  }
+
+  getLatestNews(): void {
+    void this.refreshLatestNews();
   }
 
   saveAiSettings(): void {
@@ -186,7 +211,7 @@ export class AppComponent implements OnInit {
 
     this.topPicks = this.signalService.getTopPicks(universe);
     this.analysisLoading = true;
-    if (forceRefresh || !this.watchSignals.length) {
+    if (forceRefresh || !this.watchSignals.length || !this.watchlistMatchesSignals(watchlistItems)) {
       await this.refreshLiveWatchlist(watchlistItems, universe);
     }
 
@@ -207,6 +232,33 @@ export class AppComponent implements OnInit {
       topPicks: this.topPicks,
       message: this.message
     });
+  }
+
+  private async recoverMissingAnalysis(): Promise<void> {
+    if (this.aiLoading || this.analysisLoading) {
+      return;
+    }
+
+    const hasWatchlist = this.watchlistService.getWatchlistItems().length > 0;
+    const missingInsights = hasWatchlist && (!this.aiSummary || !this.aiWatchlistInsights.length);
+    const stalePlaceholder = this.aiWatchlistInsights.some(
+      (insight) => insight.reason.includes('AI analysis getting loaded') || insight.summary.includes('No watchlist insight returned')
+    );
+
+    if (!missingInsights && !stalePlaceholder) {
+      return;
+    }
+
+    const universe = this.stockDataService.getUniverse();
+    const watchlistStocks = this.watchlistService.getWatchlistItems().map((item) => this.toWatchlistStock(item, universe));
+    if (!watchlistStocks.length) {
+      return;
+    }
+
+    this.message = 'Rebuilding AI analysis...';
+    await this.refreshLiveWatchlist(this.watchlistService.getWatchlistItems(), universe);
+    await this.refreshSuggestedNewsForWatchlist(watchlistStocks, this.topPicks, true);
+    await this.runAiAnalysis(watchlistStocks);
   }
 
   private async loadSuggestions(query: string): Promise<void> {
@@ -249,7 +301,7 @@ export class AppComponent implements OnInit {
       await Promise.all(
         watchlistItems.map(async (item) => {
           const fallback = this.toWatchlistStock(item, universe);
-          const liveStock = await this.marketLookupService.getLiveStock(item.symbol, item.companyName);
+          const liveStock = await this.getLiveStockWithZeroRetry(item.symbol, item.companyName, fallback.currentPrice === 0);
           return this.signalService.getSignal(liveStock ?? fallback);
         })
       )
@@ -262,7 +314,8 @@ export class AppComponent implements OnInit {
 
   private async refreshSuggestedNewsForWatchlist(
     watchlistStocks: Stock[],
-    topPicks: StockSignal[]
+    topPicks: StockSignal[],
+    forceFresh = false
   ): Promise<void> {
     this.newsLoading = true;
 
@@ -270,8 +323,16 @@ export class AppComponent implements OnInit {
       const watchlistSymbols = watchlistStocks.map((stock) => stock.symbol);
       const topPickSymbols = topPicks.map((pick) => pick.stock.symbol);
       const [watchlistNews, topPickNews] = await Promise.all([
-        this.marketNewsService.getNewsForSymbols(watchlistSymbols, Math.max(10, watchlistSymbols.length * 2)),
-        this.marketNewsService.getNewsForSymbols(topPickSymbols, Math.max(10, topPickSymbols.length * 2))
+        this.marketNewsService.getNewsForSymbols(
+          watchlistSymbols,
+          Math.max(10, watchlistSymbols.length * 2),
+          forceFresh
+        ),
+        this.marketNewsService.getNewsForSymbols(
+          topPickSymbols,
+          Math.max(10, topPickSymbols.length * 2),
+          forceFresh
+        )
       ]);
 
       this.suggestedNews = this.mergeNews(watchlistNews, topPickNews);
@@ -290,6 +351,44 @@ export class AppComponent implements OnInit {
     } catch (error) {
       this.suggestedNews = [];
       this.message = error instanceof Error ? error.message : 'Unable to load market news right now.';
+    } finally {
+      this.newsLoading = false;
+    }
+  }
+
+  private async refreshLatestNews(): Promise<void> {
+    this.newsLoading = true;
+
+    const universe = this.stockDataService.getUniverse();
+    const watchlistItems = this.watchlistService.getWatchlistItems();
+    const watchlistStocks = watchlistItems.map((item) => this.toWatchlistStock(item, universe));
+
+    try {
+      const topPickStocks = this.topPicks.length ? this.topPicks : this.signalService.getTopPicks(universe);
+      const topPickSymbols = topPickStocks.map((pick) => pick.stock.symbol);
+      const watchlistSymbols = watchlistStocks.map((stock) => stock.symbol);
+      const [watchlistNews, topPickNews] = await Promise.all([
+        watchlistSymbols.length
+          ? this.marketNewsService.getNewsForSymbols(watchlistSymbols, Math.max(10, watchlistSymbols.length * 2), true)
+          : this.marketNewsService.getSuggestedNews(true),
+        topPickSymbols.length
+          ? this.marketNewsService.getNewsForSymbols(topPickSymbols, Math.max(10, topPickSymbols.length * 2), true)
+          : Promise.resolve([])
+      ]);
+
+      this.suggestedNews = this.mergeNews(watchlistNews, topPickNews);
+      this.message = this.suggestedNews.length ? 'Latest market news refreshed.' : 'No fresh market news found yet.';
+      this.dashboardCacheService.saveSnapshot({
+        watchSignals: this.watchSignals,
+        suggestedNews: this.suggestedNews,
+        aiSummary: this.aiSummary,
+        aiWatchlistInsights: this.aiWatchlistInsights,
+        aiTopPicks: this.aiTopPicks,
+        topPicks: this.topPicks,
+        message: this.message
+      });
+    } catch (error) {
+      this.message = error instanceof Error ? error.message : 'Unable to refresh latest news right now.';
     } finally {
       this.newsLoading = false;
     }
@@ -365,7 +464,11 @@ export class AppComponent implements OnInit {
     const stock = this.toWatchlistStock(item, universe);
 
     try {
-      const liveStock = await this.marketLookupService.getLiveStock(stock.symbol, companyName ?? stock.companyName);
+      const liveStock = await this.getLiveStockWithZeroRetry(
+        stock.symbol,
+        companyName ?? stock.companyName,
+        stock.currentPrice === 0
+      );
       const signal = this.signalService.getSignal(liveStock ?? stock);
       this.watchSignals = this.mergeSignals(this.watchSignals, [signal]);
       if (this.aiApiKey) {
@@ -440,6 +543,56 @@ export class AppComponent implements OnInit {
 
   private normalizeSymbol(symbol: string): string {
     return symbol.trim().toUpperCase().replace(/\.NS$/i, '').replace(/\.BO$/i, '');
+  }
+
+  private watchlistMatchesSignals(watchlistItems: WatchlistItem[]): boolean {
+    if (!watchlistItems.length && !this.watchSignals.length) {
+      return true;
+    }
+
+    const watchlistSymbols = new Set(watchlistItems.map((item) => this.normalizeSymbol(item.symbol)));
+    const signalSymbols = new Set(this.watchSignals.map((signal) => this.normalizeSymbol(signal.stock.symbol)));
+
+    if (watchlistSymbols.size !== signalSymbols.size) {
+      return false;
+    }
+
+    for (const symbol of watchlistSymbols) {
+      if (!signalSymbols.has(symbol)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private async getLiveStockWithZeroRetry(
+    symbol: string,
+    fallbackName?: string,
+    retryWhenZero = false
+  ): Promise<Stock | undefined> {
+    const attempts = retryWhenZero ? 3 : 1;
+
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const liveStock = await this.marketLookupService.getLiveStock(symbol, fallbackName);
+      if (liveStock && liveStock.currentPrice > 0 && liveStock.dayChangePercent !== 0) {
+        return liveStock;
+      }
+
+      if (liveStock && liveStock.currentPrice > 0) {
+        return liveStock;
+      }
+
+      if (attempt < attempts - 1) {
+        await this.delay(300 * (attempt + 1));
+      }
+    }
+
+    return undefined;
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private toWatchlistStock(item: WatchlistItem, universe: ReturnType<StockDataService['getUniverse']>) {

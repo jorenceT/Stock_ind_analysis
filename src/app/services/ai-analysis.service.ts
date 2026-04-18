@@ -38,16 +38,20 @@ export class AiAnalysisService {
     news: MarketNewsItem[];
     watchlist: Stock[];
   }): Promise<AiAnalysisResult> {
-    const parsed = await this.generateAnalysis(params, this.buildPrompt(params.news, params.watchlist, !this.usesSystemInstruction(params.model)));
+    const parsed = await this.runWithRetry(() =>
+      this.generateAnalysis(params, this.buildPrompt(params.news, params.watchlist, !this.usesSystemInstruction(params.model)))
+    );
     const watchlistSymbols = params.watchlist.map((stock) => this.normalizeSymbol(stock.symbol));
     const missingSymbols = params.watchlist.filter(
       (stock) => !parsed.watchlistInsights.some((insight) => this.normalizeSymbol(insight.symbol) === this.normalizeSymbol(stock.symbol))
     );
 
     if (missingSymbols.length) {
-      const repair = await this.generateAnalysis(
-        params,
-        this.buildWatchlistRepairPrompt(params.news, missingSymbols, !this.usesSystemInstruction(params.model))
+      const repair = await this.runWithRetry(() =>
+        this.generateAnalysis(
+          params,
+          this.buildWatchlistRepairPrompt(params.news, missingSymbols, !this.usesSystemInstruction(params.model))
+        )
       );
 
       parsed.watchlistInsights = this.mergeInsights(parsed.watchlistInsights, repair.watchlistInsights);
@@ -68,9 +72,11 @@ export class AiAnalysisService {
     news: MarketNewsItem[];
     stock: Stock;
   }): Promise<AiStockInsight> {
-    const result = await this.generateAnalysis(
-      { apiKey: params.apiKey, model: params.model, news: params.news, watchlist: [params.stock] },
-      this.buildSingleStockPrompt(params.news, params.stock, !this.usesSystemInstruction(params.model))
+    const result = await this.runWithRetry(() =>
+      this.generateAnalysis(
+        { apiKey: params.apiKey, model: params.model, news: params.news, watchlist: [params.stock] },
+        this.buildSingleStockPrompt(params.news, params.stock, !this.usesSystemInstruction(params.model))
+      )
     );
 
     const insight = result.watchlistInsights.find(
@@ -301,5 +307,29 @@ export class AiAnalysisService {
 
   private normalizeSymbol(symbol: string): string {
     return symbol.trim().toUpperCase().replace(/\.NS$/i, '').replace(/\.BO$/i, '');
+  }
+
+  private async runWithRetry<T>(operation: () => Promise<T>): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) {
+          await this.delay(250 * (attempt + 1));
+        }
+      }
+    }
+
+    if (lastError instanceof Error) {
+      throw lastError;
+    }
+
+    throw new Error('Gemini analysis failed.');
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
